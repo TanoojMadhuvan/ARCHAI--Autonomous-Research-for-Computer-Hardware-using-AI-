@@ -24,50 +24,49 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""
-This gem5 configuation script creates a simple board to run an ARM
-"hello world" binary.
-
-This is setup is the close to the simplest setup possible using the gem5
-library. It does not contain any kind of caching, IO, or any non-essential
-components.
-
-Usage
------
-
-```
-scons build/ARM/gem5.opt
-./build/ARM/gem5.opt configs/example/gem5_library/arm-hello.py
-```
-"""
-
+import json
+from pathlib import Path
 from gem5.isas import ISA
 from gem5.utils.requires import requires
-from gem5.resources.resource import Resource
+from gem5.resources.resource import CustomResource
 from gem5.components.memory import SingleChannelDDR3_1600
 from gem5.components.processors.cpu_types import CPUTypes
 from gem5.components.boards.simple_board import SimpleBoard
-from gem5.components.cachehierarchies.classic.no_cache import NoCache
 from gem5.components.processors.simple_processor import SimpleProcessor
 from gem5.simulate.simulator import Simulator
 from pathlib import Path
-from gem5.resources.resource import CustomResource
 
-# This check ensures the gem5 binary is compiled to the ARM ISA target. If not,
-# an exception will be thrown.
+from gem5.components.cachehierarchies.classic.private_l1_shared_l2_cache_hierarchy import (
+    PrivateL1SharedL2CacheHierarchy,
+)
+
+
+# Load microarchitecture parameters
+PARAM_FILE = Path(__file__).parent / "params.json"
+
+with open(PARAM_FILE) as f:
+    params = json.load(f)
+
+
 requires(isa_required=ISA.ARM)
 
-# In this setup we don't have a cache. `NoCache` can be used for such setups.
-cache_hierarchy = NoCache()
+cache_hierarchy = PrivateL1SharedL2CacheHierarchy(
+    l1i_size=params["l1i_size"],
+    l1i_assoc=params["l1i_assoc"],
+    l1d_size=params["l1d_size"],
+    l1d_assoc=params["l1d_assoc"],
+    l2_size=params["l2_size"],
+    l2_assoc=params["l2_assoc"],
+)
 
-# We use a single channel DDR3_1600 memory system
-memory = SingleChannelDDR3_1600(size="32MB")
+memory = SingleChannelDDR3_1600(size=params["DDR_memory_size"])
 
-# We use a simple Timing processor with one core.
-processor = SimpleProcessor(cpu_type=CPUTypes.TIMING, isa=ISA.ARM, num_cores=1)
+processor = SimpleProcessor(
+    cpu_type=CPUTypes.TIMING,
+    isa=ISA.ARM,
+    num_cores=params["num_cores"],
+)
 
-# The gem5 library simble board which can be used to run simple SE-mode
-# simulations.
 board = SimpleBoard(
     clk_freq="3GHz",
     processor=processor,
@@ -75,22 +74,16 @@ board = SimpleBoard(
     cache_hierarchy=cache_hierarchy,
 )
 
-# Here we set the workload. In this case we want to run a simple "Hello World!"
-# program compiled to the ARM ISA. The `Resource` class will automatically
-# download the binary from the gem5 Resources cloud bucket if it's not already
-# present.
-
 binary = CustomResource(
     local_path=str(Path(__file__).parent / "microbench.arm")
 )
+
 board.set_se_binary_workload(binary)
 
-# Lastly we run the simulation.
 simulator = Simulator(board=board)
 simulator.run()
 
 print(
-    "Exiting @ tick {} because {}.".format(
-        simulator.get_current_tick(), simulator.get_last_exit_event_cause()
-    )
+    f"Exiting @ tick {simulator.get_current_tick()} "
+    f"because {simulator.get_last_exit_event_cause()}."
 )

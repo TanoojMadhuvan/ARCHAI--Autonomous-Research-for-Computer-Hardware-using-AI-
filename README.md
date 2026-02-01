@@ -35,5 +35,8 @@ aarch64-linux-gnu-gcc uarch_stressor.c -static -o microbench.arm
 // 10. Run the main python program
 python3 main.py
 
+// 11. Run the streamlit front-end, new terminal
+streamlit run presilicon_dashboard.py
+
 //Run a gem5 simulation
 build/ARM/gem5.opt configs/example/gem5_library/arm-hello.py
