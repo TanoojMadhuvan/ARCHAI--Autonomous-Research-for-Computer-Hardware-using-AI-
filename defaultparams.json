@@ -1,0 +1,66 @@
+{
+  "vars": {
+    "l1i_size": "16kB",
+    "l1i_assoc": 2,
+    "l1d_size": "32kB",
+    "l1d_assoc": 2,
+    "l2_size": "256kB",
+    "l2_assoc": 8,
+    "DDR_memory_size": "32MB",
+    "num_cores": 1
+  },
+  "min": {
+    "l1i_size": "16kB",
+    "l1i_assoc": 2,
+    "l1d_size": "32kB",
+    "l1d_assoc": 2,
+    "l2_size": "256kB",
+    "l2_assoc": 8,
+    "DDR_memory_size": "32MB",
+    "num_cores": 1
+  },
+  "max": {
+    "l1i_size": "16kB",
+    "l1i_assoc": 2,
+    "l1d_size": "32kB",
+    "l1d_assoc": 2,
+    "l2_size": "256kB",
+    "l2_assoc": 8,
+    "DDR_memory_size": "32MB",
+    "num_cores": 1
+  },
+  "outline": {
+    "phases": "",
+    "user_modifications": [],
+    "runtime_modifications": []
+  },
+  "stressor_c": {
+    "N": 10
+  },
+  "runtime": {
+    "status": {
+      "current_phase": 0,
+      "current_trial": 0
+    },
+    "phase_history" : {
+      "phase_0": {
+        "goal": "Identify L1D cache bottlenecks",
+        "hypothesis": "",
+        "params_changed": [],
+        "num_trials": 10,
+        "change_in_params_per_trial": [],
+        "result_evaluation": "",
+        "end_decision_to_modify_outline": ""
+      }
+    },
+    "raw_trials": {
+      "trial_0": {
+        "phase": 0,
+        "parameters": {
+          "l1d_size_kb": [64, 32, 16]
+        },
+        "result_change_from_prev_trial": 10
+      }
+    }
+  }
+}

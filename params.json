@@ -1,10 +1,73 @@
 {
-  "l1i_size": "16kB",
-  "l1i_assoc": 2,
-  "l1d_size": "32kB",
-  "l1d_assoc": 2,
-  "l2_size": "256kB",
-  "l2_assoc": 8,
-  "DDR_memory_size": "32MB",
-  "num_cores": 1
+  "vars": {
+    "l1i_size": "16kB",
+    "l1i_assoc": 2,
+    "l1d_size": "32kB",
+    "l1d_assoc": 2,
+    "l2_size": "256kB",
+    "l2_assoc": 8,
+    "DDR_memory_size": "32MB",
+    "num_cores": 1
+  },
+  "min": {
+    "l1i_size": "16kB",
+    "l1i_assoc": 2,
+    "l1d_size": "32kB",
+    "l1d_assoc": 2,
+    "l2_size": "256kB",
+    "l2_assoc": 8,
+    "DDR_memory_size": "32MB",
+    "num_cores": 1
+  },
+  "max": {
+    "l1i_size": "16kB",
+    "l1i_assoc": 2,
+    "l1d_size": "32kB",
+    "l1d_assoc": 2,
+    "l2_size": "256kB",
+    "l2_assoc": 8,
+    "DDR_memory_size": "32MB",
+    "num_cores": 1
+  },
+  "outline": {
+    "phases": "0 \"Determine L1D capacity sensitivity to minimize data-access stalls during array manipulation\" \"The sorting algorithms (especially Merge Sort with auxiliary buffers and Bubble Sort's repeated passes) will show significant IPC gains as L1D size increases, until the working set of the array and stack fits entirely within the cache\" 1 \"l1d_size\" \"2kB\" \"32kB\" 15\n1 \"Evaluate L1I capacity requirements for recursive kernels and library overhead\" \"The instruction footprint includes recursion logic and C standard library calls (malloc, printf, rand); IPC will improve initially but hit a plateau early (likely around 16kB-32kB) as the core loops are small\" 1 \"l1i_size\" \"1kB\" \"64kB\" 15\n2 \"Assess DDR capacity impact on execution time to identify the minimum viable memory footprint\" \"Since the workload is primarily CPU and cache-bound with a small data footprint (N=100), increasing DDR size beyond the initial threshold will yield negligible performance gains, allowing for cost-reduction up to the 64MB hardware limit\" 1 \"DDR_memory_size\" \"16MB\" \"64MB\" 8\n3 \"Optimize L1I associativity to mitigate conflict misses during deep recursion\" \"The recursive nature of Quick Sort and Merge Sort involves frequent jumps between the sorting logic and the partition/merge subroutines; higher associativity will reduce conflict misses in the instruction cache, stabilizing IPC\" 1 \"l1i_assoc\" \"1\" \"8\" 8",
+    "user_modifications": [
+      "The max DDR size I have available in the company is 64MB",
+      "I am pretty sure associativity is not a problem at all for my company to produce compared with DDR memory size. Can you swap the 2 phases"
+    ],
+    "runtime_modifications": []
+  },
+  "stressor_c": {
+    "N": 10
+  },
+  "runtime": {
+    "status": {
+      "current_phase": 0,
+      "current_trial": 0
+    },
+    "phase_history": {
+      "phase_0": {
+        "goal": "Identify L1D cache bottlenecks",
+        "hypothesis": "",
+        "params_changed": [],
+        "num_trials": 10,
+        "change_in_params_per_trial": [],
+        "result_evaluation": "",
+        "end_decision_to_modify_outline": ""
+      }
+    },
+    "raw_trials": {
+      "trial_0": {
+        "phase": 0,
+        "parameters": {
+          "l1d_size_kb": [
+            64,
+            32,
+            16
+          ]
+        },
+        "result_change_from_prev_trial": 10
+      }
+    }
+  }
 }

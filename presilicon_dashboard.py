@@ -98,7 +98,7 @@ PARAM_FILE = Path(__file__).parent / "params.json"
 with open(PARAM_FILE) as f:
     params = json.load(f)
 PARAMS = [
-    k for k, v in params.items()
+    k for k, v in params["vars"].items()
     if isinstance(v, (str, int))
 ]
 
@@ -132,6 +132,12 @@ if "ipc_data" not in st.session_state:
 
 if "echo_messages" not in st.session_state:
     st.session_state.echo_messages = []
+
+if "outline_messages" not in st.session_state:
+    st.session_state.outline_messages = []
+
+if "user_outline_input" not in st.session_state:
+    st.session_state.user_outline_input = ""
 
 # --------------------------------------------------
 # Sidebar (Tab Selector)
@@ -209,6 +215,20 @@ if st.session_state.current_phase == "Pre-Experiment":
                         "max": max_val
                     }
                     printS(st.session_state.param_ranges[param])
+                    
+                    intParams = ["l1i_assoc", "l1d_assoc", "l2_assoc", "num_cores"]
+                    if(param in intParams):
+                        if(min_val != ""):
+                            min_val = int(min_val)
+                        if(max_val != ""):
+                            max_val = int(max_val)
+
+                    if(min_val != ""):
+                        params["min"][param] = min_val
+                    if(max_val != ""):
+                        params["max"][param] = max_val
+                    with open(PARAM_FILE, "w") as f:
+                        json.dump(params, f, indent=2)
 
     st.divider()
 
@@ -221,11 +241,10 @@ if st.session_state.current_phase == "Pre-Experiment":
     )
 
     #Outline
-    for msg in st.session_state.echo_messages:
+    for msg in st.session_state.outline_messages:
         safe_msg = html.escape(msg)
         st.markdown(
-            f"""
-            <div style="
+            f"""<div style="
                 background-color: #1f2937;
                 color: #f9fafb;
                 padding: 12px;
@@ -234,25 +253,30 @@ if st.session_state.current_phase == "Pre-Experiment":
                 white-space: pre-wrap;
                 border-left: 4px solid #3b82f6;
                 font-family: monospace;
-            ">
-            {safe_msg}
-            </div>
-            """,
+            ">{safe_msg}</div>""",
             unsafe_allow_html=True
         )
+
+
+   # ---- Clear input if requested (must happen BEFORE widget) ----
+    if st.session_state.pop("__clear_outline_input__", False):
+        st.session_state.user_outline_input = ""
 
     user_message = st.text_area(
         "Enter modifications",
         height=120,
-        placeholder="Examples:\nSplit phase 1 into two parts: N < 50 and N >= 50 to first optimize on small datasets\nParameter X is particularly costly relative to Y due to the relationship... so try and minimize X in earlier phases"
+        placeholder="Examples:\nSplit phase 1 into two parts...\nParameter X is costly...",
+        key="user_outline_input"
     )
 
-    if st.button("Modify"):
-        if user_message.strip():
-            st.session_state.echo_messages.insert(0, user_message)
-            st.session_state.echo_messages = st.session_state.echo_messages[:3]
+    if st.button("Generate / Modify"):
+        msg = st.session_state.user_outline_input.strip() or "Generate"
+        outline = generateOutline(msg)
+        st.session_state.outline_messages = outline
+        st.session_state["__clear_outline_input__"] = True
+        st.rerun()
 
-    
+       
 
     st.divider()
 

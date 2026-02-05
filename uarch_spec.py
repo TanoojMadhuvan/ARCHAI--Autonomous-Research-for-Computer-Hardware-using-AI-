@@ -45,7 +45,7 @@ from gem5.components.cachehierarchies.classic.private_l1_shared_l2_cache_hierarc
 PARAM_FILE = Path(__file__).parent / "params.json"
 
 with open(PARAM_FILE) as f:
-    params = json.load(f)
+    params = json.load(f)["vars"]
 
 
 requires(isa_required=ISA.ARM)
