@@ -5,6 +5,8 @@ import html
 import json
 from main import *
 from pathlib import Path
+from streamlit_autorefresh import st_autorefresh
+import random
 
 st.set_page_config(layout="wide")
 
@@ -126,8 +128,10 @@ if "exp_id" not in st.session_state:
 
 if "ipc_data" not in st.session_state:
     st.session_state.ipc_data = {
-        "Experiment ID": [],
-        "IPC": []
+        "param": [],
+        "Sim Time": [],
+        "Memory Use": [],
+        "Instr Rate": [],
     }
 
 if "echo_messages" not in st.session_state:
@@ -138,6 +142,9 @@ if "outline_messages" not in st.session_state:
 
 if "user_outline_input" not in st.session_state:
     st.session_state.user_outline_input = ""
+
+if "user_outline_output" not in st.session_state:
+    st.session_state.user_outline_output = ""
 
 # --------------------------------------------------
 # Sidebar (Tab Selector)
@@ -171,7 +178,7 @@ if st.session_state.current_phase == "Pre-Experiment":
         if st.button("Start New Experiment"):
             st.session_state.experiment_started = False
             st.session_state.start_or_load_prompt = update_start_or_load_prompt(1)
-
+            resetAll()
     with col2:
         if st.button("Load Existing Experiment"):
             st.session_state.experiment_started = False
@@ -276,7 +283,6 @@ if st.session_state.current_phase == "Pre-Experiment":
         st.session_state["__clear_outline_input__"] = True
         st.rerun()
 
-       
 
     st.divider()
 
@@ -290,72 +296,195 @@ if st.session_state.current_phase == "Pre-Experiment":
 # TESTING
 # ==================================================
 if st.session_state.current_phase == "Testing":
+    # Refresh every 6 seconds
+    st_autorefresh(interval=6000, key="ipc_autorefresh")
 
-    st.title("Testing Phase")
+    # ---- Auto-add exactly one point per refresh ----
+    if "auto_counter" not in st.session_state:
+        st.session_state.auto_counter = 0
+
+    st.session_state.auto_counter += 1
+
+    st.session_state.exp_id += 1
+    ipc_value = round(random.uniform(0.7, 1.5), 3)
+
+    # st.session_state.ipc_data["Experiment ID"].append(
+    #     st.session_state.exp_id
+    # )
+    # st.session_state.ipc_data["IPC"].append(ipc_value)
+
+    runExperiment()
+    # runTrial()
+    # print(extractTrialStats())
+
+    st.title("Stress Testing")
 
     # ---------------- Graph Input ----------------
-    st.subheader("Manual IPC Input")
+    # st.subheader("Manual IPC Input")
 
-    ipc_input = st.text_input("Enter IPC value (e.g. 1.12)")
+    # ipc_input = st.text_input("Enter IPC value (e.g. 1.12)")
 
-    if st.button("Add Experiment"):
-        try:
-            ipc_value = float(ipc_input)
-            st.session_state.exp_id += 1
+    # if st.button("Add Experiment"):
+    #     try:
+    #         ipc_value = float(ipc_input)
+    #         st.session_state.exp_id += 1
 
-            st.session_state.ipc_data["Experiment ID"].append(
-                st.session_state.exp_id
-            )
-            st.session_state.ipc_data["IPC"].append(ipc_value)
+    #         st.session_state.ipc_data["Experiment ID"].append(
+    #             st.session_state.exp_id
+    #         )
+    #         st.session_state.ipc_data["IPC"].append(ipc_value)
 
-        except ValueError:
-            st.error("Invalid IPC value")
+    #     except ValueError:
+    #         st.error("Invalid IPC value")
 
     # ---------------- Plot ----------------
     df = pd.DataFrame(st.session_state.ipc_data)
 
-    fig, ax = plt.subplots()
-    ax.plot(df["Experiment ID"], df["IPC"], marker="o")
-    ax.set_xlabel("Experiment ID")
-    ax.set_ylabel("IPC")
-    ax.set_title("IPC Results")
-    ax.set_ylim(0.6, 1.6)
-    ax.grid(True)
+    p = params["runtime"]["status"]["current_phase"]
+    t = params["runtime"]["status"]["current_trial"]
 
-    st.pyplot(fig)
+    msg = ""
+    if(("phase_"+str(p)) in params["runtime"]["phase_history"]):
+        msg = "Running Phase " + str(p) + " Trial " + str(t) 
+        msg += "\n\nConcept: " + params["runtime"]["phase_history"][("phase_"+str(p))]["goal"]
+        msg += "\n\nTarget to proceed with original outline: " + params["runtime"]["phase_history"][("phase_"+str(p))]["hypothesis"]
+    else:
+        msg = "Loading Phase " + str(p)
 
-    st.divider()
+    safe_msg = html.escape(msg)
+    st.markdown(
+        f"""<div style="
+            background-color: #1f2937;
+            color: #f9fafb;
+            padding: 12px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            white-space: pre-wrap;
+            border-left: 4px solid #3b82f6;
+            font-family: monospace;
+        ">{safe_msg}</div>""",
+        unsafe_allow_html=True
+    )
 
-    # ---------------- Param checklist (graph selection) ----------------
-    st.subheader("Parameters to Display")
+    g1yc = df["Sim Time"]
+    g2yc = df["Memory Use"]
+    g1xc = df["param"]
+    xAxisName = "Trial No."
 
-    for param in PARAMS:
-        st.checkbox(
-            param,
-            value=st.session_state.selected_params[param],
-            key=f"testing_{param}"
+
+    sim_times = []
+    mem_use = []
+    params_list = []
+
+    col1, col2 = st.columns(2)
+
+    for trial in params["runtime"]["raw_trials"]:
+        if trial != "trial_template":
+            _, p2, t2 = trial.split("_")
+            p2 = int(p2)
+            t2 = int(t2)
+
+            if ((t==0) and (p2 == p-1)) or ((t>0) and (p2 == p)):
+                sim_times.append(
+                    params["runtime"]["raw_trials"][trial]["results"][1]
+                )
+                mem_use.append(
+                    params["runtime"]["raw_trials"][trial]["results"][3]
+                )
+                params_list.append(
+                    params["runtime"]["raw_trials"][trial]["param_values"][1]
+                )
+                xAxisName = params["runtime"]["raw_trials"][trial]["param_values"][0]
+
+    if len(sim_times) > 0:
+        df = pd.DataFrame({
+            "Sim Time": sim_times,
+            "Memory Use": mem_use,
+            "param": params_list
+        })
+    else:
+        df["Sim Time"] = g1yc
+        df["Memory Use"] = g2yc
+        df["param"] = g1xc
+        xAxisName = "Trial No."
+
+    with col1:
+        fig1, ax1 = plt.subplots(figsize=(5, 3))
+        ax1.plot(df["param"], df["Sim Time"], marker="o")
+        ax1.set_xlabel(xAxisName)
+        ax1.set_ylabel("Sim Time (seconds)")
+        ax1.set_title("Simulation Runtime")
+        ax1.grid(True)
+
+        ax1.autoscale(enable=True, axis="both", tight=True)
+
+        st.pyplot(fig1, use_container_width=True)
+
+
+    with col2:
+        fig1, ax1 = plt.subplots(figsize=(5, 3))
+        ax1.plot(df["param"], df["Memory Use"], marker="o")
+        ax1.set_xlabel(xAxisName)
+        ax1.set_ylabel("Memory (Bytes)")
+        ax1.set_title("DDR Memory Usage")
+        ax1.grid(True)
+
+        ax1.autoscale(enable=True, axis="both", tight=True)
+
+        st.pyplot(fig1, use_container_width=True)
+
+    if(len(params["outline"]["runtime_modifications"]) > 0):
+        summary = params["outline"]["runtime_modifications"][-1]
+        safe_msg = html.escape(summary)
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #1f2937;
+                color: #f9fafb;
+                padding: 12px;
+                border-radius: 10px;
+                margin-bottom: 10px;
+                white-space: pre-wrap;
+                border-left: 4px solid #3b82f6;
+                font-family: monospace;
+            ">
+            {safe_msg}
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
     st.divider()
 
+    # # ---------------- Param checklist (graph selection) ----------------
+    # st.subheader("Parameters to Display")
+
+    # for param in PARAMS:
+    #     st.checkbox(
+    #         param,
+    #         value=st.session_state.selected_params[param],
+    #         key=f"testing_{param}"
+    #     )
+
+    # st.divider()
+
     # ---------------- Echo Console ----------------
-    st.subheader("Echo Console")
+    st.subheader("Runtime Updates")
 
     user_message = st.text_area(
         "Type message",
         height=120,
-        placeholder="Type multiple lines here..."
+        placeholder="If a phase is not going as planned, you can manually suggest Gemini to change track.\ne.g. Changing num_cores is adding unintented bottlenecks for initial boot start... focus on minimizing cache size next phase"
     )
 
-    if st.button("Echo"):
+    if st.button("Update"):
         if user_message.strip():
-            st.session_state.echo_messages.insert(0, user_message)
-            st.session_state.echo_messages = st.session_state.echo_messages[:3]
+            generateOutline("*"+user_message+" You are already on phase " + str(params["runtime"]["status"]["current_phase"]) + " so start any updates from phase " + str(params["runtime"]["status"]["current_phase"] + 1))
+            
 
-    st.markdown("### Echo Output")
-
-    for msg in st.session_state.echo_messages:
-        safe_msg = html.escape(msg)
+    if(len(params["outline"]["modif_summary"]) > 0):
+        summary = params["outline"]["modif_summary"][-1]
+        safe_msg = html.escape(summary)
         st.markdown(
             f"""
             <div style="

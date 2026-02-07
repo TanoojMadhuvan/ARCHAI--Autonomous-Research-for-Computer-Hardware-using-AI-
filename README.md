@@ -24,6 +24,7 @@ export GEMINI_API_KEY="YOUR API KEY"
 pip install google-genai
 pip install streamlit
 pip install matplotlib
+pip install streamlit-autorefresh
 
 // 8. Install aarch64 to assemble a C program into ARM assembly
 apt update

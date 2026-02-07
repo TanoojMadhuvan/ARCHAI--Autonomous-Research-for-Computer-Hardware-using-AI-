@@ -81,17 +81,23 @@ def runTrial():
     print("Return 2 code:", simulation_result.returncode)
     print("-" * 100)
 
+def resetAll():
+    with open(Path(__file__).parent / "defaultparams.json") as f:
+        params2 = json.load(f)
+    for key in params2:
+        params[key] = params2[key]
+    storeParams()
+
 def printTrialStats():
     os.chdir("/gem5/m5out")
     with open("stats.txt", "r") as f:
         content = f.read(3000)
     print(content)
 
-
 def extractTrialStats():
     os.chdir("/gem5/m5out")
     with open("stats.txt", "r") as f:
-        text = f.read(3000)
+        text = f.read()
     numbers = re.findall(r'-?\d+(?:\.\d+)?', text)
     return [float(n) if '.' in n else int(n) for n in numbers]
 
@@ -193,7 +199,7 @@ def generateOutline(modification):
             if(params["min"][i] != params["max"][i]):
                 modify_prompt += ("\n" + str(i) + " in range " + str(params["min"][i]) + " to " + str(params["max"][i]))
         
-        modify_prompt += "\nYou already generated an initial outline of 4-6 phases, tailored to the context of optimizing microarchitecture params for the C program's execution"
+        modify_prompt += "\nYou already generated an initial outline of 4-6 phases, tailored to the context of optimizing microarchitecture params for the C program's execution\nWhen changing from one memory size to another, you can only go in powers of 2. So 16MB to 128MB should have: 16MB, 32MB, 64MB, 128MB, with the number of steps being 4"
         modify_prompt += "\n\n The Formatting is as follows:\n"
         modify_prompt += """PhaseNumber "PhaseGoal" "PhaseHypothesis" NumParamsChanging "PhaseParam1" ... "PhaseParamN" "PhaseParam1Min" ... "PhaseParamNMin" "PhaseParam1Max" ... "PhaseParamNMax" PhaseNumTrials
             e.g.
@@ -203,7 +209,7 @@ def generateOutline(modification):
             """
         modify_prompt += "\n\nHere was your proposed outline response: " + params["outline"]["phases"]
         modify_prompt += "\n\nIMPORTANT, you need to modify parts of the outline based on this feedback request: " + modification
-        modify_prompt += "\nReturn the output in the same format"
+        modify_prompt += "\nReturn the output in the same format. Always start your answer from phase 0"
        
         response = client.models.generate_content(
             model="gemini-3-flash-preview",
@@ -220,7 +226,34 @@ def generateOutline(modification):
         )
         print("Modify Prompt:", modify_prompt)
         print("\n\nAI Modify Response:", response.text)
+
+        summary_modified = ""
+        if(modification[0] == '*' or modification[0] == '&'):
+            summary_prompt = "This was your original outline: " + params["outline"]["phases"]
+            summary_prompt = "This was the modification I asked you to make: " + modification
+            summary_prompt += "\n\nThis is the new outline you generated: " + response.text
+            summary_prompt += "\n\nGive a 2 sentence response detailing how you incorporated my advice exactly in the modified outline, exactly what you modified. 1 sentence on how it can change performance of computer architecture."
+            response2 = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=[
+                    {
+                        "role": "system",
+                        "parts": [{"text": SYSTEM_INSTRUCTION}]
+                    },
+                    {
+                        "role": "user",
+                        "parts": [{"text": summary_prompt}]
+                    }
+                ]
+            )
+            summary_modified = response2.text
+            if(modification[0] == '*' and (summary_modified not in params["outline"]["modif_summary"])):
+                params["outline"]["modif_summary"].append(summary_modified)
+            elif(modification[0] == '&' and (summary_modified not in params["outline"]["runtime_modifications"])):
+                params["outline"]["runtime_modifications"].append(summary_modified)
+
         params["outline"]["phases"] = response.text
+
     elif params["outline"]["phases"] == "":
         initial_prompt = "The C stressor program you are trying to optimize is: \n" + c_program_contents + "\n\nThink about the nature of the taskload, like how the stressor algorithm's use of memory might affect cache hit-rate/execution speed"
         initial_prompt += "Generate an initial outline of 4-6 phases, tailored to the context of optimizing microarchitecture params for the C program's execution"
@@ -230,7 +263,7 @@ def generateOutline(modification):
                 initial_prompt += ("\n" + str(i) + " in range " + str(params["min"][i]) + " to " + str(params["max"][i]))
         
         initial_prompt += "\n\nFor each phase, specify a small goal, a hypothesis, the 1 to 3 parameters you want to change in that phase, the start and endpoint for each parameter you are changing, the number of steps (trials) you are going to take to reach from start to end" 
-        initial_prompt += "\n\nRemember, you are not simply maximizing the cache size or number of cores as that would obviously result in maximum speed. Instead, you can slowly linearly interpolate a parameter over 10-20 trials, and identify exactly when a bottleneck is reached, when no further progress is made even though cache size is increasing and making microarchitecture more costly."
+        initial_prompt += "\n\nRemember, you are not simply maximizing the cache size or number of cores as that would obviously result in maximum speed. Instead, you can slowly linearly interpolate a parameter over 10-20 trials, and identify exactly when a bottleneck is reached, when no further progress is made even though cache size is increasing and making microarchitecture more costly.\nWhen changing from one memory size to another, you can only go in powers of 2. So 16MB to 128MB should have: 16MB, 32MB, 64MB, 128MB, with the number of steps being 4"
         initial_prompt += "\n\n Format as follows:\n"
         initial_prompt += """PhaseNumber "PhaseGoal" "PhaseHypothesis" NumParamsChanging "PhaseParam1" ... "PhaseParamN" "PhaseParam1Min" ... "PhaseParamNMin" "PhaseParam1Max" ... "PhaseParamNMax" PhaseNumTrials
             e.g.
@@ -281,6 +314,79 @@ def generateOutline(modification):
 
     return frontEndPrinting
 
+def log2_int(n: int) -> int:
+    return n.bit_length() - 1
+
+def lerp(frac, low1, high1, low2, high2):
+    if high1 == low1:
+        raise ValueError("high1 and low1 cannot be equal")
+
+    t = (frac - low1) / (high1 - low1)
+    return int(low2 + t * (high2 - low2))
+
+def runExperiment():
+    if(params["outline"]["phases"] == ""):
+        return "NOT READY"
+    
+    p = params["runtime"]["status"]["current_phase"]
+    t = params["runtime"]["status"]["current_trial"]
+
+    if(("phase_"+str(p)) in params["runtime"]["phase_history"]):
+        phaseInfo = params["runtime"]["phase_history"][("phase_"+str(p))]
+        if(phaseInfo["num_trials"] == t):
+            params["runtime"]["status"]["current_trial"] = 0
+            modif_prompt = "&You just finished running phase " + str(p) +" with the following info: " + json.dumps(params["runtime"]["phase_history"]["phase_" + str(p)], indent=2)
+            modif_prompt += "\n\nHere are raw trial logs: " + str(params["runtime"]["raw_trials"])
+            modif_prompt += "\n\nTrial logs are in the format 'trial_phasenumber_trialnumber'. Analyze all the trials of the phase you just ran and identify if the hypothesis was correct. If correct, don't modify the outline much. If incorrect, update the outline from the next phase onward to improve the experiment dynammically now that you see what the experiment results are producing."
+            generateOutline(modif_prompt)
+            params["runtime"]["phase_history"]["phase_" + str(p)]["embedding_branch_decision"] = params["runtime"]["outline"]["runtime_modifications"][-1]
+            params["runtime"]["status"]["current_phase"] += 1
+        else:
+            ind = 0
+            arrayToLog = []
+            for par in phaseInfo["params_changed"]:
+                mini = str(params["min"][par])
+                maxi = str(params["max"][par])
+                arrayToLog.append(par)
+                if(mini.isdigit()):
+                    params["vars"][par] = lerp(t, 0, phaseInfo["num_trials"], maybeInt(mini), maybeInt(maxi))
+                    arrayToLog.append(params["vars"][par])
+                else:
+                    unit = mini[-2:]
+                    mini = mini[:-2]
+                    maxi = maxi[:-2]
+
+                    params["vars"][par] = str(1 << lerp(t, 0, phaseInfo["num_trials"]-1, log2_int(maybeInt(mini)), log2_int(maybeInt(maxi)))) + unit
+                    arrayToLog.append(params["vars"][par])
+                ind += 1
+            storeParams()
+            runTrial()
+            stats = extractTrialStats()
+            params["runtime"]["raw_trials"][("trial_"+str(p)+"_"+str(t))] = {
+                "param_values" : arrayToLog,
+                "results" : ["Sim Secs", stats[0], "Used Memory Bytes", stats[6], "Instr Rate", stats[9]]
+            }
+            params["runtime"]["status"]["current_trial"] += 1
+            return stats
+    else:
+        outline = params["outline"]["phases"]
+        parsedOutline = parseOutlineResponse(outline)
+        if(p >= len(parsedOutline)):
+            print("Done Experimenting")
+        else:
+            row = parsedOutline[p]
+            params["runtime"]["phase_history"][("phase_"+str(p))] = {
+                "goal": row[0],
+                "hypothesis": row[1],
+                "params_changed": row[2],
+                "num_trials": row[4],
+                "param_ranges": row[3],
+                "embedding_branch_decision": ""
+            }
+            params["runtime"]["status"]["current_trial"] = 0
+    storeParams()
+
+    return "NULL"
 
 # setStressorWorkloadSize()
 # assemblyProgram()

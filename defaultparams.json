@@ -1,38 +1,39 @@
 {
   "vars": {
-    "l1i_size": "16kB",
+    "l1i_size": "8kB",
     "l1i_assoc": 2,
-    "l1d_size": "32kB",
+    "l1d_size": "64kB",
     "l1d_assoc": 2,
     "l2_size": "256kB",
     "l2_assoc": 8,
     "DDR_memory_size": "32MB",
-    "num_cores": 1
+    "num_cores": 2
   },
   "min": {
-    "l1i_size": "16kB",
+    "l1i_size": "1kB",
     "l1i_assoc": 2,
-    "l1d_size": "32kB",
+    "l1d_size": "16kB",
     "l1d_assoc": 2,
     "l2_size": "256kB",
     "l2_assoc": 8,
-    "DDR_memory_size": "32MB",
+    "DDR_memory_size": "16MB",
     "num_cores": 1
   },
   "max": {
     "l1i_size": "16kB",
     "l1i_assoc": 2,
-    "l1d_size": "32kB",
+    "l1d_size": "128kB",
     "l1d_assoc": 2,
     "l2_size": "256kB",
     "l2_assoc": 8,
-    "DDR_memory_size": "32MB",
-    "num_cores": 1
+    "DDR_memory_size": "64MB",
+    "num_cores": 3
   },
   "outline": {
-    "phases": "",
+    "phases": "0 \"Determine L1D capacity sensitivity to minimize data-access stalls during array manipulation\" \"The sorting algorithms (especially Merge Sort with auxiliary buffers and Bubble Sort's repeated passes) will show performance stabilization once the 16kB-128kB range is explored, as the working set for N=100 is small but requires low-latency access\" 1 \"l1d_size\" \"16kB\" \"128kB\" 4\n1 \"Evaluate L1I capacity requirements for recursive kernels and library overhead\" \"The instruction footprint includes recursion logic for Quick/Merge sort and C standard library calls; IPC will likely plateau quickly within the 1kB to 16kB range as the core loops are small enough to fit in even modest instruction caches\" 1 \"l1i_size\" \"1kB\" \"16kB\" 5\n2 \"Identify the minimum viable DDR footprint to support the operating environment and application data\" \"Given the small data footprint (N=100) and lack of heavy disk I/O, increasing DDR size from 16MB to 64MB will yield negligible execution speed gains, allowing for a reduction in simulated hardware cost\" 1 \"DDR_memory_size\" \"16MB\" \"64MB\" 3\n3 \"Assess core count impact on single-threaded sorting performance\" \"Since the current stressor is a single-threaded sequential program, increasing the number of cores from 1 to 3 will not improve execution time and will likely decrease overall efficiency due to resource contention or overhead\" 1 \"num_cores\" \"1\" \"3\" 3",
     "user_modifications": [],
-    "runtime_modifications": []
+    "runtime_modifications": [],
+    "modif_summary" : []
   },
   "stressor_c": {
     "N": 10
@@ -42,24 +43,21 @@
       "current_phase": 0,
       "current_trial": 0
     },
-    "phase_history" : {
-      "phase_0": {
+    "phase_history": {
+      "phase_template": {
         "goal": "Identify L1D cache bottlenecks",
         "hypothesis": "",
         "params_changed": [],
         "num_trials": 10,
-        "change_in_params_per_trial": [],
+        "param_ranges": [],
         "result_evaluation": "",
-        "end_decision_to_modify_outline": ""
+        "embedding_branch_decision": ""
       }
     },
     "raw_trials": {
-      "trial_0": {
-        "phase": 0,
-        "parameters": {
-          "l1d_size_kb": [64, 32, 16]
-        },
-        "result_change_from_prev_trial": 10
+      "trial_template": {
+        "param_values": [],
+        "results": []
       }
     }
   }
