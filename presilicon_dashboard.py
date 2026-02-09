@@ -1,3 +1,8 @@
+
+# -------------------------------------------------------------------
+# FRONT-END STREAMLIT IMPLEMENTATION
+# -------------------------------------------------------------------
+
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -84,6 +89,86 @@ st.markdown(
         margin-bottom: 10px;
         font-size: 1.2rem;
     }
+
+    /* ===== Microarchitecture Report Container ===== */
+.archai-report-container {
+    position: relative;
+    background:
+        linear-gradient(180deg, rgba(15,23,42,0.95), rgba(2,6,23,0.98)),
+        repeating-linear-gradient(
+            0deg,
+            rgba(56,189,248,0.03),
+            rgba(56,189,248,0.03) 1px,
+            transparent 1px,
+            transparent 28px
+        );
+    border: 1px solid #334155;
+    border-left: 4px solid #38bdf8;
+    border-radius: 14px;
+    padding: 28px 34px;
+    box-shadow:
+        inset 0 0 40px rgba(0,0,0,0.6),
+        0 0 30px rgba(2,6,23,0.8);
+    max-height: 500px;
+    overflow-y: auto;
+    z-index: 1;
+}
+
+    /* ===== Report Typography ===== */
+    .archai-report-container h1 {
+        color: #e5f3ff;
+        font-size: 2rem;
+        letter-spacing: 0.08em;
+        border-bottom: 1px solid #334155;
+        padding-bottom: 12px;
+        margin-bottom: 24px;
+    }
+
+    .archai-report-container h2 {
+        color: #38bdf8;
+        margin-top: 32px;
+        margin-bottom: 12px;
+        letter-spacing: 0.06em;
+    }
+
+    .archai-report-container h3 {
+        color: #7dd3fc;
+        margin-top: 24px;
+    }
+
+    /* ===== Body Text ===== */
+    .archai-report-container p,
+    .archai-report-container li {
+        font-family: "Inter", system-ui, sans-serif;
+        font-size: 0.95rem;
+        line-height: 1.7;
+        color: #d1d5db;
+    }
+
+    /* ===== Code / Technical Emphasis ===== */
+    .archai-report-container code {
+        background: rgba(15,23,42,0.9);
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 2px 6px;
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        color: #38bdf8;
+    }
+
+    /* ===== Scrollbar (Feels Like an Analyzer Pane) ===== */
+    .archai-report-container::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .archai-report-container::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, #1e293b, #38bdf8);
+        border-radius: 6px;
+    }
+
+    .archai-report-container::-webkit-scrollbar-track {
+        background: #020617;
+    }
+
     </style>
     """,
     unsafe_allow_html=True
@@ -103,6 +188,10 @@ PARAMS = [
     k for k, v in params["vars"].items()
     if isinstance(v, (str, int))
 ]
+
+def storeParams():
+    with open(PARAM_FILE, "w") as f:
+        json.dump(params, f, indent=2)
 
 # --------------------------------------------------
 # Session state initialization
@@ -183,6 +272,7 @@ if st.session_state.current_phase == "Pre-Experiment":
         if st.button("Load Existing Experiment"):
             st.session_state.experiment_started = False
             st.session_state.start_or_load_prompt = update_start_or_load_prompt(2)
+            loadPrev()
 
     st.divider()
 
@@ -283,6 +373,26 @@ if st.session_state.current_phase == "Pre-Experiment":
         st.session_state["__clear_outline_input__"] = True
         st.rerun()
 
+
+    st.divider()
+    
+    st.write(
+        "### Auto Gemini API Usage"
+    )
+    st.info(
+        "Since this experiment is meant to run autonomously, dynamically evaluate the results after each phase, and modify the outline automatically, the program can call many requests to your Gemini API key/model. It is often incompatible with the free-tier rate limits. You can choose to enable/disable such high frequency usage below."
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("Enable"):
+            st.success("Enabled")
+            setDynamicUpdates(1)
+    with col2:
+        if st.button("Disable"):
+            st.success("Disabled")
+            setDynamicUpdates(0)
 
     st.divider()
 
@@ -510,36 +620,81 @@ if st.session_state.current_phase == "Results and Analysis":
 
     st.title("Results and Analysis")
 
-    st.subheader("Experiment Visualization")
-    st.image(
-        "https://via.placeholder.com/900x400?text=Experiment+Results",
-        use_column_width=True
+    st.subheader("Report")
+
+    REPORT_PATH = Path(__file__).parent / "report.md"
+    with open(REPORT_PATH, "r", encoding="utf-8") as f:
+        report_md = f.read()
+
+    st.markdown(
+        f"""
+        <div class="archai-report-container">
+            {report_md}
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
+    
+    if st.button("Recreate Report"):
+        createReport()
+
+    # st.image(
+    #     "https://via.placeholder.com/900x400?text=Experiment+Results",
+    #     use_column_width=True
+    # )
 
     st.divider()
 
-    st.subheader("Analysis Console")
+    st.subheader("Research Console")
+    
+    if(len(params["results"]["research_polls"]) > 0):
+        summary = params["results"]["research_polls"][-1]
+        safe_msg = html.escape(summary)
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #1f2937;
+                color: #f9fafb;
+                padding: 12px;
+                border-radius: 10px;
+                margin-bottom: 10px;
+                white-space: pre-wrap;
+                border-left: 4px solid #3b82f6;
+                font-family: monospace;
+            ">
+            {safe_msg}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
     analysis_message = st.text_area(
-        "Ask about results or bottlenecks",
+        "Compare your results/bottlenecks with online sources by initiating research tasks",
         height=120
-    )
-
-    if st.button("Submit Analysis Query"):
-        st.info("Query submitted")
-
-    st.text_area(
-        "Extend Existing Experiment",
-        height=100,
-        placeholder="Describe how you want to extend the experiment..."
     )
 
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("Extend Experiment"):
-            st.success("Experiment extended")
+        if st.button("Add Research Task"):
+            st.info("Task Sent")
+            startDeepResearch(analysis_message)
 
     with col2:
-        if st.button("Save Results"):
-            st.success("Results saved")
+        if st.button("Poll Result"):
+            st.info("Poll Requested")
+            pollDeepResearch()
+    
+    st.divider()
+
+    # st.text_area(
+    #     "Extend Existing Experiment",
+    #     height=100,
+    #     placeholder="Describe how you want to extend the experiment..."
+    # )
+
+    st.info("You can extend this experiment by saving, switching back to pre-experimentation, loading, and specifying new system parameters.")
+
+    if st.button("Save Results"):
+        st.success("Results saved")
+        saveCurrent()

@@ -23,11 +23,19 @@ You must reason step-by-step and justify each decision using evidence from prior
 def printS(message):
     print(message)
 
-# --- Gemini API part ---
+# -------------------------------------------------------------------
+# GEMINI CLIENT INITIALIZATION
+# -------------------------------------------------------------------
+
+# Initialize Gemini client using API key from environment variables
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-# --- Run the gem5 command ---
-# Note: split the command into a list: first is executable, rest are arguments
+# -------------------------------------------------------------------
+# COMMANDS USED THROUGHOUT THE PIPELINE
+# -------------------------------------------------------------------
+# 1. Compile C stressor into ARM static binary
+# 2. Run gem5 simulation
+# 3. (Optional) Build shared library for runtime parameter manipulation
 
 commands = [
     ["aarch64-linux-gnu-gcc", "uarch_stressor.c", "-static", "-o", "microbench.arm"],
@@ -35,17 +43,25 @@ commands = [
     ["gcc", "-shared", "-fPIC", "uarch_stressor.c", "-o", "libstressor.so"]
 ]
 
+# -------------------------------------------------------------------
+# LOAD MICROARCHITECTURE PARAMETERS
+# -------------------------------------------------------------------
+
 PARAM_FILE = Path(__file__).parent / "params.json"
 with open(PARAM_FILE) as f:
     params = json.load(f)
+
+# Extract tunable parameters (only int or string types)
 PARAMS = [
     k for k, v in params["vars"].items()
     if isinstance(v, (str, int))
 ]
 
+# Load C workload source code so Gemini can reason about algorithm behavior
 with open("/gem5/configs/example/gem5_library/archai/uarch_stressor.c", "r", encoding="utf-8") as f:
     c_program_contents = f.read()
 
+# Persist updated parameters to disk
 def storeParams():
     with open(PARAM_FILE, "w") as f:
         json.dump(params, f, indent=2)
@@ -62,9 +78,56 @@ def update_start_or_load_prompt(buttonType):
         start_or_load_prompt = "**Loaded Existing Experiment** \nAble to recover the previous logs. Continue to choose parameters."
     return start_or_load_prompt
 
+
+# -------------------------------------------------------------------
+# COMPILATION & SIMULATION HELPERS
+# -------------------------------------------------------------------
+
+# Compile the stressor into ARM binary
 def assemblyProgram():
     subprocess.run(commands[0], capture_output=True, text=True)
 
+# -------------------------------------------------------------------
+# GEMINI DEEP RESEARCH PIPELINE
+# -------------------------------------------------------------------
+def startDeepResearch(query):
+    REPORT_PATH = Path(__file__).parent / "report.md"
+    with open(REPORT_PATH, "r", encoding="utf-8") as f:
+        report_md = f.read()
+
+    interaction = client.interactions.create(
+        input="Here is a report of an experiment: " + report_md + " \n\n Here is the user query: "+query + "\n\nUsing the report and any online tools you have access to, generate a deep, thorough answer to the question.",
+        agent="deep-research-pro-preview-12-2025",
+        background=True,
+    )
+    params["results"]["research_IDs"].append(interaction.id)
+
+def pollDeepResearch():
+    r = params["results"]["research_IDs"]
+    if(len(r) > 0):
+        res = client.interactions.get(r[-1])   
+        if res.status == "completed":
+            collected_text = []
+
+            for output in res.outputs:
+                if "content" not in output:
+                    continue
+
+                for block in output["content"]:
+                    if block.get("type") == "output_text":
+                        collected_text.append(block.get("text", ""))
+
+            if params["results"]["research_polls"][-1] != "\n".join(collected_text):
+                params["results"]["research_polls"].append("\n".join(collected_text))
+        else:
+            if(params["results"]["research_polls"][-1] != "Research Task still in progress"):
+                params["results"]["research_polls"].append("Research Task still in progress")
+
+    storeParams()
+
+# -------------------------------------------------------------------
+# RUN A SINGLE GEM5 TRIAL (COMPUTER ARCHITECTURE SIMULATION)
+# -------------------------------------------------------------------
 def runTrial():
     # --- Change directory to /gem5 ---
     os.chdir("/gem5")
@@ -81,6 +144,9 @@ def runTrial():
     print("Return 2 code:", simulation_result.returncode)
     print("-" * 100)
 
+# -------------------------------------------------------------------
+# PARAMETER STATE MANAGEMENT
+# -------------------------------------------------------------------
 def resetAll():
     with open(Path(__file__).parent / "defaultparams.json") as f:
         params2 = json.load(f)
@@ -88,6 +154,22 @@ def resetAll():
         params[key] = params2[key]
     storeParams()
 
+def saveCurrent():
+    with open(PARAM_FILE) as f:
+        params = json.load(f)
+    with open(Path(__file__).parent / "loadparams.json", "w") as f:
+        json.dump(params, f, indent=2)
+
+def loadPrev():
+    with open(Path(__file__).parent / "loadparams.json") as f:
+        params2 = json.load(f)
+    for key in params2:
+        params[key] = params2[key]
+    storeParams()
+
+# -------------------------------------------------------------------
+# STATISTICS EXTRACTION
+# -------------------------------------------------------------------
 def printTrialStats():
     os.chdir("/gem5/m5out")
     with open("stats.txt", "r") as f:
@@ -101,18 +183,11 @@ def extractTrialStats():
     numbers = re.findall(r'-?\d+(?:\.\d+)?', text)
     return [float(n) if '.' in n else int(n) for n in numbers]
 
-# def setStressorWorkloadSize():
-#     subprocess.run(commands[2], capture_output=True, text=True)
-#     lib = ctypes.CDLL("./libstressor.so")
-#     lib.set_N.argtypes = [ctypes.c_int]
-#     with open(PARAM_FILE) as f:
-#         params = json.load(f)
-#         N = params["stressor_c"]["N"]
-#         lib.set_N(N)
-
-
 currentOutline = ["1. Do this", "2. Do that"]
 
+# -------------------------------------------------------------------
+# OUTLINE PARSING & GENERATION
+# -------------------------------------------------------------------
 def maybeInt(val):
     return int(val) if val.isdigit() else val
 
@@ -178,6 +253,9 @@ def parseOutlineResponse(outline_str):
 
     return rows
 
+# -------------------------------------------------------------------
+# OUTLINE GENERATION & MODIFICATION VIA GEMINI
+# -------------------------------------------------------------------
 def generateOutline(modification):
     
     # response = client.models.generate_content(
@@ -188,7 +266,7 @@ def generateOutline(modification):
 
     if(modification != "Generate" and params["outline"]["phases"] != ""):
         currentOutline.append(modification)  
-        if(modification not in params["outline"]["user_modifications"]):
+        if(modification not in params["outline"]["user_modifications"] and modification[0] != '&'):
             params["outline"]["user_modifications"].append(modification)
 
         modify_prompt = "The C stressor program you are trying to optimize is: \n" + c_program_contents + "\n\nThink about the nature of the taskload, like how the stressor algorithm's use of memory might affect cache hit-rate/execution speed"
@@ -228,6 +306,8 @@ def generateOutline(modification):
         print("\n\nAI Modify Response:", response.text)
 
         summary_modified = ""
+      
+
         if(modification[0] == '*' or modification[0] == '&'):
             summary_prompt = "This was your original outline: " + params["outline"]["phases"]
             summary_prompt = "This was the modification I asked you to make: " + modification
@@ -247,6 +327,18 @@ def generateOutline(modification):
                 ]
             )
             summary_modified = response2.text
+
+            print("summary modified")
+            print(summary_modified)
+            print(modification[0] == '&' and (summary_modified not in params["outline"]["runtime_modifications"]))
+            print(params["outline"]["runtime_modifications"])
+            print()
+
+    #     "Experiment going according to plan. No runtime changes in outline.",
+    # "I incorporated the Phase 0 results by acknowledging that execution time remained constant regardless of L1D size, indicating the data working set is already fully captured; consequently, I modified Phase 1 to pivot the investigation toward instruction fetch bottlenecks via L1I scaling. I also updated the remaining phases to verify that memory capacity and core count are non-contributing factors, ensuring the research focuses on identifying the true bottleneck of this sequential workload. Optimizing cache sizing to precisely match the workload's footprint maximizes performance-per-watt and reduces silicon area by eliminating over-provisioned, under-utilized memory structures.",
+    # "Based on the Phase 0 results, which showed that simulation time remained constant at 0.000197s across all L1D sizes, I have maintained the upcoming phases to focus on instruction delivery (L1I) and system-level overhead (DDR) since data capacity is clearly not the bottleneck. I specifically kept the L1I exploration at the lower 1kB-16kB range and the DDR exploration at 16MB-64MB to determine the absolute minimum viable hardware footprint for this N=100 workload. Right-sizing microarchitectural structures to the specific working set of an application reduces power consumption and decreases access latency by avoiding the overhead of over-provisioned cache hierarchies.",
+    # "I have updated the experiment plan to pivot toward **L1 Instruction Cache (L1I)** scaling in Phase 1 because the identical \"Sim Secs\" results across all Phase 0 trials prove that L1 Data Cache capacity is not the primary bottleneck for this sorting workload. I also incorporated memory footprint and core scaling checks in Phases 2 and 3 to rule out system-level constraints and verify the single-threaded nature of the recursive kernels.\n\nAddressing instruction-fetch efficiency through L1I optimization can significantly improve performance by reducing frontend stalls and pipeline bubbles, ensuring that the execution units are consistently utilized regardless of data cache size."
+
             if(modification[0] == '*' and (summary_modified not in params["outline"]["modif_summary"])):
                 params["outline"]["modif_summary"].append(summary_modified)
             elif(modification[0] == '&' and (summary_modified not in params["outline"]["runtime_modifications"])):
@@ -314,6 +406,9 @@ def generateOutline(modification):
 
     return frontEndPrinting
 
+# -------------------------------------------------------------------
+# NUMERIC HELPERS
+# -------------------------------------------------------------------
 def log2_int(n: int) -> int:
     return n.bit_length() - 1
 
@@ -324,6 +419,54 @@ def lerp(frac, low1, high1, low2, high2):
     t = (frac - low1) / (high1 - low1)
     return int(low2 + t * (high2 - low2))
 
+# -------------------------------------------------------------------
+# RUNTIME STATUS CONTROL
+# -------------------------------------------------------------------
+def setDynamicUpdates(num):
+    params["runtime"]["status"]["dynamic_result_interpretation"] = num
+    storeParams()
+
+# -------------------------------------------------------------------
+# REPORT GENERATION
+# -------------------------------------------------------------------
+def createReport():
+    report_prompt = """You are ARCHAI, a pre-silicon microarchitecture research analyst. You completed an experiment in phases which have goals, hypotheses, and trials. Generate a full structured performance report in Markdown that can be converted into a PDF. Here is are the logs:\n"""
+    for key in params:
+        report_prompt += "\n" + key + " -> " + json.dumps(params[key])
+    report_prompt += """
+        Sections needed:
+        1. Title Page
+        2. Executive Summary
+        3. Methodology
+        4. Results Table
+        5. Analysis of metrics like Simulation Time, Memory Use, Instructions Per Cycle Rate
+        6. Identification of bottlenecks
+        7. Evaluation of Gemini 3's Autonomous Decision Making in Runtime Modifications
+        8. Conclusion
+        9. Recommendations for next experiments
+
+        Produce Markdown output with clear headers and narrative text. Make it colorful, but also technical like the work of a computer architect.
+        - Use ATX headers (## Section)
+        - One section per header
+        - Blank line between paragraphs
+        - Use Markdown tables for all numeric data
+        - No inline metadata on one line
+        - No HTML tags
+        - No emojis
+        """
+    response = client.models.generate_content(
+        model="gemini-3-flash-preview",
+        contents=report_prompt
+    )
+    report_md = response.text
+    params["results"]["markdown"] = report_md
+    with open("report.md", "w", encoding="utf-8") as f:
+        f.write(report_md)
+
+
+# -------------------------------------------------------------------
+# MAIN EXPERIMENT EXECUTION LOOP
+# -------------------------------------------------------------------
 def runExperiment():
     if(params["outline"]["phases"] == ""):
         return "NOT READY"
@@ -334,13 +477,15 @@ def runExperiment():
     if(("phase_"+str(p)) in params["runtime"]["phase_history"]):
         phaseInfo = params["runtime"]["phase_history"][("phase_"+str(p))]
         if(phaseInfo["num_trials"] == t):
-            params["runtime"]["status"]["current_trial"] = 0
-            modif_prompt = "&You just finished running phase " + str(p) +" with the following info: " + json.dumps(params["runtime"]["phase_history"]["phase_" + str(p)], indent=2)
-            modif_prompt += "\n\nHere are raw trial logs: " + str(params["runtime"]["raw_trials"])
-            modif_prompt += "\n\nTrial logs are in the format 'trial_phasenumber_trialnumber'. Analyze all the trials of the phase you just ran and identify if the hypothesis was correct. If correct, don't modify the outline much. If incorrect, update the outline from the next phase onward to improve the experiment dynammically now that you see what the experiment results are producing."
-            generateOutline(modif_prompt)
-            params["runtime"]["phase_history"]["phase_" + str(p)]["embedding_branch_decision"] = params["runtime"]["outline"]["runtime_modifications"][-1]
+            if(params["runtime"]["status"]["dynamic_result_interpretation"] == 1):
+                modif_prompt = "&You just finished running phase " + str(p) +" with the following info: " + json.dumps(params["runtime"]["phase_history"]["phase_" + str(p)], indent=2)
+                modif_prompt += "\n\nHere are raw trial logs: " + str(params["runtime"]["raw_trials"])
+                modif_prompt += "\n\nTrial logs are in the format 'trial_phasenumber_trialnumber'. Analyze all the trials of the phase you just ran and identify if the hypothesis was correct. If correct, don't modify the outline much. If incorrect, update the outline from the next phase onward to improve the experiment dynammically now that you see what the experiment results are producing."
+                generateOutline(modif_prompt)
+                params["runtime"]["phase_history"]["phase_" + str(p)]["embedding_branch_decision"] = params["outline"]["runtime_modifications"][-1]
             params["runtime"]["status"]["current_phase"] += 1
+            params["runtime"]["status"]["current_trial"] = 0
+            storeParams()
         else:
             ind = 0
             arrayToLog = []
@@ -371,8 +516,9 @@ def runExperiment():
     else:
         outline = params["outline"]["phases"]
         parsedOutline = parseOutlineResponse(outline)
-        if(p >= len(parsedOutline)):
-            print("Done Experimenting")
+        if(p == len(parsedOutline)):
+            createReport()
+            params["runtime"]["status"]["current_phase"] += 1
         else:
             row = parsedOutline[p]
             params["runtime"]["phase_history"][("phase_"+str(p))] = {
