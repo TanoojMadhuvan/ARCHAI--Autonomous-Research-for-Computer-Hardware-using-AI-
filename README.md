@@ -144,3 +144,71 @@ build/ARM/gem5.opt configs/example/gem5_library/arm-hello.py
 B. Run the following command to actually assemble the C code
 
 aarch64-linux-gnu-gcc uarch_stressor.c -static -o microbench.arm
+
+# Programs / File Structure
+
+### main.py
+- Core orchestration logic for *ARCHAI*
+- Handles all **Gemini 3 interactions**, including:
+  - Assembling microarchitectural stressor code
+  - Generating experimental phase outlines
+  - Running gem5 simulation trials
+  - Initiating Deep Research tasks
+  - Generating Markdown reports from simulation results
+
+---
+
+### presilicon_dashboard.py
+- Streamlit-based front-end for interacting with *ARCHAI*
+- Allows users to:
+  - Configure microarchitecture parameters
+  - Edit experiment outlines using natural language
+  - Monitor running trials
+  - Visualize results locally via `localhost`
+
+---
+
+### uarch_spec.py
+- Defines the **gem5 microarchitecture configuration**
+- Specifies:
+  - CPU configuration
+  - Cache hierarchy
+  - Memory system parameters
+  - Other architectural components used during simulation
+
+---
+
+### uarch_stressor.c
+- Microarchitectural stressor program compiled and executed within **gem5**
+- Currently implements workloads such as:
+  - Merge sort
+  - Bubble sort
+- Uses configurable input sizes to generate controlled:
+  - Memory pressure
+  - Compute pressure
+
+---
+
+### params.json
+- Runtime experiment state file
+- Stores:
+  - Active configuration parameters
+  - Experimental phase definitions
+  - Trial metadata
+  - Extracted simulation results during execution
+
+---
+
+### loadparams.json
+- Serialized project snapshot
+- Used to:
+  - Reload a previously saved experiment into `params.json`
+  - Continue or extend long-running research workflows
+
+---
+
+### defaultparams.json
+- Baseline configuration template
+- Used when:
+  - Starting a new project
+  - Overwriting `params.json` with default experiment settings
